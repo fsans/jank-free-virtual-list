@@ -19,8 +19,6 @@ export function hash2(a: number, b: number): number {
   return h >>> 0
 }
 
-export const ITEM_TYPES: readonly ItemType[] = ['user', 'assistant', 'tool', 'code', 'image', 'diff']
-
 const TYPE_CODES: Record<ItemType, number> = { user: 0, assistant: 1, tool: 2, code: 3, image: 4, diff: 5 }
 const TYPE_NAMES: readonly ItemType[] = ['user', 'assistant', 'tool', 'code', 'image', 'diff']
 
