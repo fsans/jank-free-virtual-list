@@ -39,7 +39,7 @@ Or copy it into a project at `.agents/skills/jank-free-virtual-list/` to make it
 
 ## Repository structure
 
-```
+```text
 jank-free-virtual-list/          # this repo
 ├── README.md
 ├── AGENTS.md                    # conventions for agents editing this repo

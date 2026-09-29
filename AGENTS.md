@@ -10,7 +10,7 @@ There is no build system, test suite, or package manifest. Changes are markdown-
 
 ## Layout rules
 
-```
+```text
 jank-free-virtual-list/          # repo root
 ├── README.md                    # human-facing overview (repo root only)
 ├── AGENTS.md                    # this file (repo root only)
