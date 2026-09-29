@@ -94,12 +94,12 @@ describe('drawTarget', () => {
     const rng = mulberry32(3)
     for (let i = 0; i < 200; i++) {
       const t = drawTarget('assistant', rng, 1)
-      expect(t).toBeGreaterThanOrEqual(60)
-      expect(t).toBeLessThanOrEqual(600)
+      expect(t).toBeGreaterThanOrEqual(36)
+      expect(t).toBeLessThanOrEqual(320)
     }
   })
 
   it('collapses to the midpoint at variance 0', () => {
-    expect(drawTarget('user', Math.random, 0)).toBe(100)
+    expect(drawTarget('user', Math.random, 0)).toBe(62)
   })
 })

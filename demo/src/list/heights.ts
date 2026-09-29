@@ -10,6 +10,10 @@ export function expandOutline(outline: readonly OutlineEntry[]): ItemType[] {
 
 /** Recent measurements kept per type for the running-median estimate. */
 export const CALIBRATION_RING = 256
+/** Calibrate a type only after this many samples (early medians jump around). */
+export const CALIBRATION_MIN_SAMPLES = 16
+/** And only when the median moved at least this far (avoids constant re-bakes). */
+export const CALIBRATION_DEADBAND_PX = 4
 
 /**
  * Height model for the whole list.
@@ -67,6 +71,15 @@ export class HeightsStore {
   }
 
   /**
+   * The height currently baked into the Fenwick tree — the layout truth the
+   * spacers use. Skeleton rows must render at THIS height (not `heightOf`)
+   * so the DOM always matches the offset math, even mid-drain.
+   */
+  bakedHeightOf(i: number): number {
+    return this.fenwick.get(i)
+  }
+
+  /**
    * Record the exact rendered height of a real (loaded) row; sample it for
    * calibration. Returns whether the baked height changed.
    */
@@ -86,19 +99,20 @@ export class HeightsStore {
   }
 
   /**
-   * Recompute per-type estimates as the median of recent measurements.
-   * Returns the types whose estimate changed.
+   * Recompute per-type estimates as the median of recent measurements, once a
+   * type has enough samples and only when the median moved beyond the
+   * deadband. Returns the types whose estimate changed.
    */
   calibrate(): ItemType[] {
     const changed: ItemType[] = []
     for (const t of ITEM_TYPES) {
       const ring = this.rings[t]
-      if (ring.length === 0) continue
+      if (ring.length < CALIBRATION_MIN_SAMPLES) continue
       const sorted = [...ring].sort((a, b) => a - b)
       const mid = sorted.length >> 1
       const median =
         sorted.length % 2 === 1 ? (sorted[mid] ?? 0) : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
-      if (median !== this.estimates[t]) {
+      if (Math.abs(median - this.estimates[t]) >= CALIBRATION_DEADBAND_PX) {
         this.estimates[t] = median
         changed.push(t)
       }
@@ -108,23 +122,20 @@ export class HeightsStore {
 
   /**
    * Bake current estimates into the Fenwick entries of UNMEASURED rows.
-   * Scans all n rows (cheap array reads) but writes at most `budget` entries
-   * per call, so it can be called once per frame. Returns how many stale rows
-   * remain unbaked.
+   * Scans rows in index order but writes at most `budget` entries per call,
+   * so it can be called once per frame. Returns the number of rows re-baked
+   * this call (0 means nothing stale remains).
    */
   flushCalibration(budget = 4000): number {
     let writes = 0
-    let stale = 0
-    for (let i = 0; i < this.n; i++) {
+    for (let i = 0; i < this.n && writes < budget; i++) {
       if ((this.measured[i] ?? 0) !== 0) continue
       const est = this.estimates[this.types[i] ?? 'user']
       if (this.fenwick.get(i) === est) continue
-      if (writes < budget) {
-        this.fenwick.set(i, est)
-        writes++
-      } else stale++
+      this.fenwick.set(i, est)
+      writes++
     }
-    return stale
+    return writes
   }
 
   /** Baked offset math (uses baked heights; flushCalibration keeps them close). */

@@ -91,6 +91,40 @@ body {
   color: var(--user);
 }
 
+.vlist-status-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.load-ind {
+  color: var(--code);
+  font-variant-numeric: tabular-nums;
+}
+
+.comp-toggle {
+  font: inherit;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  background: transparent;
+  color: var(--muted);
+}
+
+.comp-toggle.on {
+  background: rgba(125, 208, 168, 0.15);
+  color: var(--tool);
+  border-color: rgba(125, 208, 168, 0.4);
+}
+
+.comp-toggle.off {
+  background: rgba(235, 87, 87, 0.15);
+  color: var(--diff);
+  border-color: rgba(235, 87, 87, 0.4);
+}
+
 /* The scroll container. overflow-anchor: none — we compensate ourselves. */
 .vlist {
   flex: 1;
@@ -264,7 +298,7 @@ body {
 
 .img {
   margin: 0;
-  max-width: 420px;
+  max-width: 240px;
 }
 
 .img-box {

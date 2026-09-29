@@ -1,18 +1,58 @@
-/** The virtualized list: scroller + spacers + mounted rows. */
-import type { ReactNode } from 'react'
+/** The virtualized list: scroller + spacers + mounted rows + status strip. */
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { MockApi } from '../mock/api'
 import { Row } from '../rows/Row'
 import { useVirtualList } from './useVirtualList'
 
+declare global {
+  interface Window {
+    __vlist?: {
+      log: () => readonly unknown[]
+      state: () => Record<string, unknown>
+    }
+  }
+}
+
 export default function VirtualList({ api }: { api: MockApi }) {
   const v = useVirtualList(api)
   const hs = v.heights
+  const vRef = useRef(v)
+  vRef.current = v
+
+  useEffect(() => {
+    window.__vlist = {
+      log: () => vRef.current.log.events(),
+      state: () => {
+        const s = vRef.current
+        return {
+          n: s.n,
+          mode: s.mode,
+          compensation: s.compensation,
+          loadedCount: s.loadedCount,
+          cacheSize: s.cacheSize,
+          inflight: s.inflight,
+          queueLength: s.queueLength,
+          scrollTop: s.scrollTop,
+          viewportH: s.viewportH,
+          visibleStart: s.visibleStart,
+          visibleEnd: s.visibleEnd,
+          mountedStart: s.mountedStart,
+          mountedEnd: s.mountedEnd,
+          topSpacer: s.topSpacer,
+          bottomSpacer: s.bottomSpacer,
+          total: s.heights?.total() ?? 0,
+          offsetOf: (i: number) => s.heights?.offsetOf(i) ?? 0,
+          heightOf: (i: number) => s.heights?.heightOf(i) ?? 0,
+        }
+      },
+    }
+  }, [])
 
   const rows: ReactNode[] = []
   if (hs) {
     for (let i = v.mountedStart; i <= v.mountedEnd; i++) {
       rows.push(
-        <Row key={i} index={i} type={hs.typeOf(i)} payload={v.payloadOf(i)} height={hs.heightOf(i)} />,
+        <Row key={i} index={i} type={hs.typeOf(i)} payload={v.payloadOf(i)} height={hs.bakedHeightOf(i)} />,
       )
     }
   }
@@ -21,9 +61,23 @@ export default function VirtualList({ api }: { api: MockApi }) {
     <div className="vlist-wrap">
       <div className="vlist-status">
         <span>
-          {v.n.toLocaleString()} items · {v.loadedCount} loaded · {rows.length} mounted
+          {v.n.toLocaleString()} items · {v.loadedCount} loaded · {rows.length} mounted · cache {v.cacheSize}
         </span>
-        <span className={`mode-badge mode-${v.mode}`}>{v.mode}</span>
+        <span className="vlist-status-right">
+          {v.inflight > 0 || v.queueLength > 0 ? (
+            <span className="load-ind">
+              {v.inflight} in flight · {v.queueLength} queued
+            </span>
+          ) : null}
+          <button
+            className={`comp-toggle ${v.compensation ? 'on' : 'off'}`}
+            onClick={() => v.setCompensation(!v.compensation)}
+            title="Toggle anchor-row scroll compensation (A/B the jank)"
+          >
+            compensation {v.compensation ? 'on' : 'off'}
+          </button>
+          <span className={`mode-badge mode-${v.mode}`}>{v.mode}</span>
+        </span>
       </div>
       <div className="vlist" ref={v.setScroller} onScroll={v.onScroll}>
         {v.ready ? (

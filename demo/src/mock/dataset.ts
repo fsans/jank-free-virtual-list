@@ -31,13 +31,17 @@ const WORDS = [
 
 const TOOL_NAMES = ['shell: npm test', 'grep: TODO', 'edit: loader.ts', 'read: PLAN.md', 'search: anchor']
 
+// Real height targets, scaled ~0.6x from the PLAN.md table so a fully
+// calibrated 200k-item list stays under the browser scroll-range cap
+// (Chromium/Firefox clamp any scrollable area at 2^25 = 33,554,432 px).
+// Weighted real average ≈ 138px => ≈ 27.6M px at n=200k.
 const HEIGHT_RANGE: Record<ItemType, readonly [number, number]> = {
-  user: [40, 160],
-  assistant: [60, 600],
-  tool: [32, 48],
-  code: [80, 700],
-  image: [200, 560],
-  diff: [60, 900],
+  user: [28, 96],
+  assistant: [36, 320],
+  tool: [20, 32],
+  code: [48, 360],
+  image: [135, 320],
+  diff: [36, 480],
 }
 
 /** Draw a target rendered height (px) for an item, spread by `variance`. */

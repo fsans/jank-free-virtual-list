@@ -45,38 +45,47 @@ describe('HeightsStore', () => {
     expect(hs.measure(5, 10)).toBe(false)
   })
 
-  it('calibrate() moves estimates to the median of recent samples', () => {
-    const hs = new HeightsStore(all(10, 'tool')) // estimate 36
-    for (let i = 0; i < 5; i++) hs.measure(i, 40)
-    expect(hs.calibrate()).toEqual(['tool'])
+  it('calibrate() moves estimates to the median once enough samples exist', () => {
+    const hs = new HeightsStore(all(30, 'tool')) // estimate 36
+    for (let i = 0; i < 15; i++) hs.measure(i, 40)
+    expect(hs.calibrate()).toEqual([]) // below CALIBRATION_MIN_SAMPLES
+    hs.measure(15, 40)
+    expect(hs.calibrate()).toEqual(['tool']) // 16 samples, |40-36| >= deadband
     expect(hs.estimateOf('tool')).toBe(40)
     expect(hs.calibrate()).toEqual([]) // stable
     // other types untouched
     expect(hs.estimateOf('user')).toBe(INITIAL_ESTIMATES.user)
   })
 
+  it('calibrate() ignores median moves inside the deadband', () => {
+    const hs = new HeightsStore(all(30, 'user')) // estimate 56
+    for (let i = 0; i < 20; i++) hs.measure(i, 58) // |58-56| = 2 < 4
+    expect(hs.calibrate()).toEqual([])
+    expect(hs.estimateOf('user')).toBe(56)
+  })
+
   it('flushCalibration() re-bakes unmeasured rows in budgeted batches', () => {
-    const hs = new HeightsStore(all(10, 'tool')) // estimate 36
-    hs.measure(0, 44)
-    hs.calibrate() // estimate 44
-    expect(hs.flushCalibration(2)).toBe(7) // 2 of the 9 stale rows written
-    // rows 1,2 baked at 44; rows 3,4 still 36
-    expect(hs.offsetOf(5)).toBe(44 + 44 + 44 + 36 + 36)
-    expect(hs.flushCalibration()).toBe(0)
-    expect(hs.offsetOf(5)).toBe(44 * 5)
-    expect(hs.total()).toBe(44 * 10)
+    const hs = new HeightsStore(all(30, 'tool')) // estimate 36
+    for (let i = 0; i < 20; i++) hs.measure(i, 44)
+    hs.calibrate() // estimate 44; rows 20-29 stale
+    expect(hs.flushCalibration(2)).toBe(2) // 2 of the 10 stale rows re-baked
+    // rows 20,21 baked at 44; rows 22,23,24 still 36
+    expect(hs.offsetOf(25)).toBe(20 * 44 + 2 * 44 + 3 * 36)
+    expect(hs.flushCalibration()).toBe(8) // the remaining 8
+    expect(hs.offsetOf(25)).toBe(25 * 44)
+    expect(hs.total()).toBe(30 * 44)
   })
 
   it('flushCalibration() never touches measured rows', () => {
-    const hs = new HeightsStore(all(10, 'tool'))
-    hs.measure(0, 60)
-    hs.measure(0, 50) // resize: sample set [60, 50] -> median 55
+    const hs = new HeightsStore(all(30, 'tool'))
+    for (let i = 0; i < 10; i++) hs.measure(i, 60)
+    for (let i = 0; i < 10; i++) hs.measure(i, 50) // ring: 10x60 + 10x50 -> median 55
     hs.calibrate()
     expect(hs.estimateOf('tool')).toBe(55)
     hs.flushCalibration()
     expect(hs.heightOf(0)).toBe(50) // exact, not the estimate
     expect(hs.offsetOf(1)).toBe(50)
-    expect(hs.total()).toBe(50 + 9 * 55)
+    expect(hs.total()).toBe(10 * 50 + 20 * 55)
   })
 
   it('scales to a 200k-row outline', () => {
@@ -88,8 +97,5 @@ describe('HeightsStore', () => {
     expect(hs.offsetOf(100_000)).toBeGreaterThan(0)
     expect(hs.indexAtOffset(hs.total() - 1)).toBe(199_999)
     expect(hs.flushCalibration()).toBe(0) // nothing stale yet
-    hs.measure(100_000, 77)
-    hs.calibrate()
-    expect(hs.flushCalibration(1000)).toBeGreaterThan(0)
   })
 })
