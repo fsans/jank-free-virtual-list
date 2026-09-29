@@ -1,5 +1,5 @@
 /** One real (loaded) component per ItemType. */
-import type { ComponentType } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import type { Payload, ItemType } from '../list/types'
 
 function UserRow({ payload }: { payload: Payload }) {
@@ -40,13 +40,32 @@ function CodeRow({ payload }: { payload: Payload }) {
   )
 }
 
+/**
+ * Payloads whose simulated decode already finished — remounts (row recycled
+ * and re-mounted later) render decoded immediately instead of replaying.
+ */
+const decoded = new WeakSet<Payload>()
+
 function ImageRow({ payload }: { payload: Payload }) {
+  const [ready, setReady] = useState(() => decoded.has(payload))
+  useEffect(() => {
+    if (ready) return
+    const t = setTimeout(() => {
+      decoded.add(payload)
+      setReady(true)
+    }, payload.decodeMs ?? 300)
+    return () => clearTimeout(t)
+  }, [payload, ready])
   return (
     <figure className="img">
       <div className="img-box" style={{ aspectRatio: String(payload.aspect ?? 1) }}>
-        <img src={payload.src} alt={`item ${payload.index}`} />
+        {ready ? (
+          <img src={payload.src} alt={`item ${payload.index}`} />
+        ) : (
+          <div className="img-decoding">decoding…</div>
+        )}
       </div>
-      {payload.caption ? <figcaption>{payload.caption}</figcaption> : null}
+      {ready && payload.caption ? <figcaption>{payload.caption}</figcaption> : null}
     </figure>
   )
 }

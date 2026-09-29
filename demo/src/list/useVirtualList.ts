@@ -49,6 +49,11 @@ export interface VirtualListState {
   queueLength: number
   compensation: boolean
   setCompensation: (on: boolean) => void
+  streaming: boolean
+  setStreaming: (on: boolean) => void
+  /** Items appended by the stream while in free mode (the "N new ↓" pill). */
+  newCount: number
+  jumpToLatest: () => void
   log: RingLog
   scrollTop: number
   viewportH: number
@@ -83,6 +88,8 @@ export function useVirtualList(api: MockApi): VirtualListState {
   const [viewportH, setViewportH] = useState(0)
   const [mode, setMode] = useState<ListMode>('pinned')
   const [compensation, setCompensationState] = useState(true)
+  const [streaming, setStreaming] = useState(false)
+  const [newCount, setNewCount] = useState(0)
 
   const cacheRef = useRef<PayloadCache | null>(null)
   if (cacheRef.current === null) cacheRef.current = new PayloadCache(5000)
@@ -103,6 +110,10 @@ export function useVirtualList(api: MockApi): VirtualListState {
   const lastScrollTopRef = useRef(0)
   const modeRef = useRef<ListMode>('pinned')
   const lastVisRef = useRef<[number, number]>([0, -1])
+  /** scrollTop delta written by compensation/pin logic since the last scroll event. */
+  const progDeltaRef = useRef(0)
+  const touchYRef = useRef<number | null>(null)
+  const intentCleanupRef = useRef<(() => void) | null>(null)
 
   useLayoutEffect(() => {
     heightsRef.current = heights
@@ -129,6 +140,29 @@ export function useVirtualList(api: MockApi): VirtualListState {
     if (!el || !anchorEl) return null
     return anchorEl.getBoundingClientRect().top - el.getBoundingClientRect().top
   }, [])
+
+  /**
+   * Write scrollTop and record the delta as programmatic, so the scroll
+   * handler can subtract our own writes from user intent (mode transitions
+   * must never be inferred from raw scrollTop movement).
+   */
+  const writeScrollTop = useCallback((el: HTMLElement, v: number) => {
+    const before = el.scrollTop
+    el.scrollTop = v
+    progDeltaRef.current += el.scrollTop - before
+  }, [])
+
+  /** Explicit mode transition: scroll-up intent => free, bottom => pinned. */
+  const setModeInternal = useCallback(
+    (next: ListMode) => {
+      if (modeRef.current === next) return
+      modeRef.current = next
+      if (next === 'pinned') setNewCount(0)
+      log.push('mode_change', { mode: next })
+      setMode(next)
+    },
+    [log],
+  )
 
   // ---- outline: the index-only query that reserves the whole scroll range ----
   useEffect(() => {
@@ -242,7 +276,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
               setRev((r) => r + 1)
             }
             if (delta !== 0 && compensationRef.current && scr) {
-              scr.scrollTop += delta
+              writeScrollTop(scr, scr.scrollTop + delta)
               log.push('delta_applied', {
                 reason: 'resize',
                 deltaApplied: r2(delta),
@@ -254,13 +288,47 @@ export function useVirtualList(api: MockApi): VirtualListState {
         }
         roRef.current.observe(el)
         setViewportH(el.clientHeight)
+        // explicit scroll-up intent => free mode (scrollbar drags are caught
+        // by the userDelta accounting in onScroll instead)
+        const onWheel = (e: WheelEvent) => {
+          if (e.deltaY < 0) setModeInternal('free')
+        }
+        const onTouchStart = (e: TouchEvent) => {
+          touchYRef.current = e.touches[0]?.clientY ?? null
+        }
+        const onTouchMove = (e: TouchEvent) => {
+          const y = e.touches[0]?.clientY
+          const prev = touchYRef.current
+          touchYRef.current = y ?? null
+          // finger moving down pulls content toward the top => free
+          if (y !== undefined && prev !== null && y > prev) setModeInternal('free')
+        }
+        const onKey = (e: KeyboardEvent) => {
+          const t = e.target as HTMLElement | null
+          if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+          if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') setModeInternal('free')
+        }
+        el.addEventListener('wheel', onWheel, { passive: true })
+        el.addEventListener('touchstart', onTouchStart, { passive: true })
+        el.addEventListener('touchmove', onTouchMove, { passive: true })
+        window.addEventListener('keydown', onKey)
+        intentCleanupRef.current = () => {
+          el.removeEventListener('wheel', onWheel)
+          el.removeEventListener('touchstart', onTouchStart)
+          el.removeEventListener('touchmove', onTouchMove)
+          window.removeEventListener('keydown', onKey)
+        }
       } else if (roRef.current !== null) {
         roRef.current.disconnect()
         roRef.current = null
         observedRef.current.clear()
       }
+      if (el === null) {
+        intentCleanupRef.current?.()
+        intentCleanupRef.current = null
+      }
     },
-    [currentAnchor, anchorTopOf, log],
+    [currentAnchor, anchorTopOf, log, setModeInternal, writeScrollTop],
   )
 
   // ---- island planning (rAF-throttled on scroll) ----
@@ -301,20 +369,23 @@ export function useVirtualList(api: MockApi): VirtualListState {
       const el = scrollerRef.current
       if (!el) return
       const st = el.scrollTop
-      const direction: Direction = st === lastScrollTopRef.current ? 0 : st < lastScrollTopRef.current ? -1 : 1
+      // user intent = raw movement minus our own compensation/pin writes;
+      // mode is never inferred from position alone
+      const userDelta = st - lastScrollTopRef.current - progDeltaRef.current
+      progDeltaRef.current = 0
       lastScrollTopRef.current = st
+      const direction: Direction = userDelta < -0.5 ? -1 : userDelta > 0.5 ? 1 : 0
       setScrollTop(st)
       const distFromBottom = el.scrollHeight - el.clientHeight - st
-      const next: ListMode = distFromBottom <= 4 ? 'pinned' : 'free'
-      if (modeRef.current !== next) {
-        modeRef.current = next
-        log.push('mode_change', { mode: next })
-      }
-      setMode(next)
-      log.push('scroll', { scrollTop: Math.round(st), direction, mode: next })
+      // upward intent frees — but a negative delta that lands exactly on the
+      // bottom is the browser clamping scrollTop after the content shrank
+      // (calibration drain), not the user leaving
+      if (userDelta < -0.5 && distFromBottom > 4) setModeInternal('free')
+      else if (userDelta > 0.5 && distFromBottom <= 4) setModeInternal('pinned')
+      log.push('scroll', { scrollTop: Math.round(st), direction, mode: modeRef.current })
       planAround(st, direction, el.clientHeight)
     })
-  }, [log, planAround])
+  }, [log, planAround, setModeInternal])
 
   useEffect(
     () => () => {
@@ -373,7 +444,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
       }
     }
     if (deltaAbove !== 0 && compensationRef.current) {
-      el.scrollTop += deltaAbove
+      writeScrollTop(el, el.scrollTop + deltaAbove)
       log.push('delta_applied', {
         reason: 'measure',
         deltaApplied: r2(deltaAbove),
@@ -426,7 +497,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
     const targetTop = pc.topBefore - userScroll
     const adjustment = top - targetTop
     if (compensationRef.current && adjustment !== 0) {
-      el.scrollTop += adjustment
+      writeScrollTop(el, el.scrollTop + adjustment)
       pc.compApplied += adjustment
       log.push('delta_applied', {
         reason: pc.reason,
@@ -445,8 +516,37 @@ export function useVirtualList(api: MockApi): VirtualListState {
     const el = scrollerRef.current
     if (!el || mode !== 'pinned') return
     const max = el.scrollHeight - el.clientHeight
-    if (max > 0 && Math.abs(el.scrollTop - max) > 0.5) el.scrollTop = max
+    if (max > 0 && Math.abs(el.scrollTop - max) > 0.5) writeScrollTop(el, max)
   }, [mode, heights, rev, viewportH])
+
+  // ---- streaming: appends extend the skeleton map; growth patches the cache ----
+  useEffect(() => {
+    if (!streaming) return
+    api.stream((ev) => {
+      const hs = heightsRef.current
+      if (!hs) return
+      if (ev.kind === 'append') {
+        hs.appendRow(ev.type)
+        log.push('stream_append', { index: ev.index, type: ev.type, n: hs.n })
+        if (modeRef.current === 'free') setNewCount((c) => c + 1)
+        setRev((r) => r + 1)
+      } else if (cacheRef.current?.has(ev.index)) {
+        // refresh the cached payload so the row re-renders taller; the RO
+        // path compensates if the grown row sits above the anchor
+        cacheRef.current.setMany([api.payloadOf(ev.index)])
+        log.push('stream_grow', { index: ev.index })
+        setRev((r) => r + 1)
+      }
+    })
+    return () => api.stopStream()
+  }, [api, streaming, log])
+
+  /** "N new ↓" pill / Jump to latest: explicit pin + scroll to bottom. */
+  const jumpToLatest = useCallback(() => {
+    setModeInternal('pinned')
+    const el = scrollerRef.current
+    if (el) writeScrollTop(el, el.scrollHeight - el.clientHeight)
+  }, [setModeInternal, writeScrollTop])
 
   const setCompensation = useCallback((on: boolean) => {
     compensationRef.current = on
@@ -465,6 +565,10 @@ export function useVirtualList(api: MockApi): VirtualListState {
     queueLength: loaderRef.current?.queueLength ?? 0,
     compensation,
     setCompensation,
+    streaming,
+    setStreaming,
+    newCount,
+    jumpToLatest,
     log,
     scrollTop,
     viewportH,

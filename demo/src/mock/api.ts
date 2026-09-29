@@ -34,6 +34,11 @@ export class MockApi {
     return delay(30).then(() => this.dataset.outline())
   }
 
+  /** Regenerate one item's payload (includes any streamed growth so far). */
+  payloadOf(index: number): Payload {
+    return this.dataset.payloadOf(index)
+  }
+
   /** Fetch payloads for ids; latency 150-600ms by default. Honors AbortSignal. */
   getItems(ids: readonly number[], signal?: AbortSignal): Promise<Payload[]> {
     if (signal?.aborted) return Promise.reject(abortError())

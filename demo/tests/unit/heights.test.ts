@@ -88,6 +88,34 @@ describe('HeightsStore', () => {
     expect(hs.total()).toBe(10 * 50 + 20 * 55)
   })
 
+  it('appendRow() grows the list and bakes the current estimate', () => {
+    const hs = new HeightsStore(['user', 'code'])
+    const i = hs.appendRow('tool')
+    expect(i).toBe(2)
+    expect(hs.n).toBe(3)
+    expect(hs.typeOf(2)).toBe('tool')
+    expect(hs.heightOf(2)).toBe(INITIAL_ESTIMATES.tool)
+    expect(hs.isMeasured(2)).toBe(false)
+    expect(hs.offsetOf(2)).toBe(INITIAL_ESTIMATES.user + INITIAL_ESTIMATES.code)
+    expect(hs.total()).toBe(INITIAL_ESTIMATES.user + INITIAL_ESTIMATES.code + INITIAL_ESTIMATES.tool)
+    hs.measure(2, 48)
+    expect(hs.heightOf(2)).toBe(48)
+    expect(hs.offsetOf(3)).toBe(hs.total())
+  })
+
+  it('appendRow() bakes the calibrated estimate, not the initial one', () => {
+    const hs = new HeightsStore(all(20, 'tool')) // estimate 36
+    for (let i = 0; i < 16; i++) hs.measure(i, 44)
+    hs.calibrate()
+    const i = hs.appendRow('tool')
+    expect(hs.heightOf(i)).toBe(44)
+    // and a later flush still re-bakes it if the estimate moves again
+    for (let k = 0; k < 16; k++) hs.measure(k, 60)
+    hs.calibrate()
+    hs.flushCalibration()
+    expect(hs.bakedHeightOf(i)).toBe(hs.estimateOf('tool'))
+  })
+
   it('scales to a 200k-row outline', () => {
     const ds = new Dataset(42, 200_000)
     const types = expandOutline(ds.outline())

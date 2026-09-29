@@ -27,22 +27,22 @@ export const CALIBRATION_DEADBAND_PX = 4
  *   never all 200k Fenwick entries at once.
  */
 export class HeightsStore {
-  readonly n: number
-  private readonly types: readonly ItemType[]
+  private count: number
+  private types: ItemType[]
   private readonly fenwick: Fenwick
-  private readonly measured: Float32Array // 0 = not measured; real rows are never 0 tall
+  private measured: Float32Array // 0 = not measured; real rows are never 0 tall
   private estimates: Record<ItemType, number>
   private readonly rings: Record<ItemType, number[]>
   private readonly ringPos: Record<ItemType, number>
 
   constructor(types: readonly ItemType[], initial: Record<ItemType, number> = INITIAL_ESTIMATES) {
     const est: Record<ItemType, number> = { ...INITIAL_ESTIMATES, ...initial }
-    this.n = types.length
-    this.types = types
+    this.count = types.length
+    this.types = [...types]
     this.estimates = est
-    this.measured = new Float32Array(this.n)
-    const init = new Float64Array(this.n)
-    for (let i = 0; i < this.n; i++) init[i] = est[types[i] ?? 'user']
+    this.measured = new Float32Array(this.count + 1024)
+    const init = new Float64Array(this.count)
+    for (let i = 0; i < this.count; i++) init[i] = est[types[i] ?? 'user']
     this.fenwick = Fenwick.fromValues(init)
     this.rings = {} as Record<ItemType, number[]>
     this.ringPos = {} as Record<ItemType, number>
@@ -52,12 +52,32 @@ export class HeightsStore {
     }
   }
 
+  get n(): number {
+    return this.count
+  }
+
   typeOf(i: number): ItemType {
     return this.types[i] ?? 'user'
   }
 
+  /**
+   * Append a row of the given type (streaming). Bakes the current estimate
+   * for that type; returns the new row's index.
+   */
+  appendRow(type: ItemType): number {
+    const i = this.count++
+    this.types.push(type)
+    if (i >= this.measured.length) {
+      const m = new Float32Array(Math.max(this.measured.length * 2, 1024))
+      m.set(this.measured)
+      this.measured = m
+    }
+    this.fenwick.push(this.estimates[type])
+    return i
+  }
+
   isMeasured(i: number): boolean {
-    return i >= 0 && i < this.n && (this.measured[i] ?? 0) !== 0
+    return i >= 0 && i < this.count && (this.measured[i] ?? 0) !== 0
   }
 
   estimateOf(type: ItemType): number {
@@ -84,7 +104,7 @@ export class HeightsStore {
    * calibration. Returns whether the baked height changed.
    */
   measure(i: number, h: number): boolean {
-    if (i < 0 || i >= this.n || !(h > 0)) return false
+    if (i < 0 || i >= this.count || !(h > 0)) return false
     const changed = this.fenwick.get(i) !== h
     this.measured[i] = h
     this.fenwick.set(i, h)
@@ -128,7 +148,7 @@ export class HeightsStore {
    */
   flushCalibration(budget = 4000): number {
     let writes = 0
-    for (let i = 0; i < this.n && writes < budget; i++) {
+    for (let i = 0; i < this.count && writes < budget; i++) {
       if ((this.measured[i] ?? 0) !== 0) continue
       const est = this.estimates[this.types[i] ?? 'user']
       if (this.fenwick.get(i) === est) continue

@@ -9,6 +9,8 @@ declare global {
     __vlist?: {
       log: () => readonly unknown[]
       state: () => Record<string, unknown>
+      setStreaming: (on: boolean) => void
+      jumpToLatest: () => void
     }
   }
 }
@@ -22,12 +24,16 @@ export default function VirtualList({ api }: { api: MockApi }) {
   useEffect(() => {
     window.__vlist = {
       log: () => vRef.current.log.events(),
+      setStreaming: (on) => vRef.current.setStreaming(on),
+      jumpToLatest: () => vRef.current.jumpToLatest(),
       state: () => {
         const s = vRef.current
         return {
           n: s.n,
           mode: s.mode,
           compensation: s.compensation,
+          streaming: s.streaming,
+          newCount: s.newCount,
           loadedCount: s.loadedCount,
           cacheSize: s.cacheSize,
           inflight: s.inflight,
@@ -76,6 +82,13 @@ export default function VirtualList({ api }: { api: MockApi }) {
           >
             compensation {v.compensation ? 'on' : 'off'}
           </button>
+          <button
+            className={`comp-toggle ${v.streaming ? 'on' : ''}`}
+            onClick={() => v.setStreaming(!v.streaming)}
+            title="Toggle the mock stream (appends + growth at the bottom)"
+          >
+            stream {v.streaming ? 'on' : 'off'}
+          </button>
           <span className={`mode-badge mode-${v.mode}`}>{v.mode}</span>
         </span>
       </div>
@@ -90,6 +103,11 @@ export default function VirtualList({ api }: { api: MockApi }) {
           <div className="vlist-boot">loading outline…</div>
         )}
       </div>
+      {v.newCount > 0 ? (
+        <button className="new-pill" onClick={v.jumpToLatest}>
+          {v.newCount} new ↓
+        </button>
+      ) : null}
     </div>
   )
 }

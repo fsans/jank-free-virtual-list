@@ -104,6 +104,30 @@ describe('Fenwick', () => {
     expect(f.get(2)).toBe(0)
   })
 
+  it('push() appends rows and keeps sums/offsets correct across growth', () => {
+    const rng = mulberry32(555)
+    const f = Fenwick.fromValues([10, 20, 30])
+    const naive = new Naive([10, 20, 30])
+    for (let k = 0; k < 5000; k++) {
+      const v = 1 + Math.floor(rng() * 300)
+      f.push(v)
+      naive.h.push(v)
+      const i = Math.floor(rng() * naive.h.length)
+      const nv = 1 + Math.floor(rng() * 300)
+      f.set(i, nv)
+      naive.h[i] = nv
+      if (k % 100 === 0) {
+        expect(f.size).toBe(naive.h.length)
+        expect(f.total()).toBeCloseTo(naive.total())
+        const j = Math.floor(rng() * naive.h.length)
+        expect(f.offsetOf(j)).toBeCloseTo(naive.offsetOf(j))
+        const px = Math.floor(rng() * naive.total())
+        expect(f.indexAtOffset(px)).toBe(naive.indexAtOffset(px))
+      }
+    }
+    expect(f.total()).toBeCloseTo(naive.total())
+  })
+
   it('scales to 200k rows with correct offsets', () => {
     const rng = mulberry32(99)
     const n = 200_000
