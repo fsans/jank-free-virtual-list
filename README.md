@@ -37,12 +37,32 @@ cp -R jank-free-virtual-list/jank-free-virtual-list ~/.agents/skills/
 
 Or copy it into a project at `.agents/skills/jank-free-virtual-list/` to make it available to agents working in that repo.
 
+## Demo
+
+`demo/` is a self-contained Vite + React + TypeScript app that implements the strategy against a seeded mock API (200,000 items by default — `?seed=` and `?n=` in the URL change it). No virtualization libraries; the virtualizer is hand-rolled per the skill.
+
+```bash
+cd demo
+npm install
+npm run dev        # http://localhost:5173
+npm test           # vitest unit tests
+npm run e2e        # playwright e2e (spins up its own dev server)
+```
+
+Things to try:
+
+- **A/B the jank** — toggle "compensation" off in the status bar (or the debugger panel), scroll to the middle, then scroll up. The row you were reading visibly jumps; toggle it back on and it stays put.
+- **Streaming** — enable "stream". While pinned at the bottom new items keep it glued; scroll up to go free and a "N new ↓" pill counts arrivals without yanking the anchor.
+- **Jump anywhere** — "top #1", "latest", "random", or the "go to #" input; the debugger shows `jump_usable` timings in the event log.
+- **Debugger panel** (right side) — minimap of the whole list (grey skeleton / green loaded / amber in-flight / blue-grey measured-only; click to jump), live stats, latency and height-variance sliders, row overlays, anchor outline, and a filterable structured event log with JSON download. `window.__vlist` exposes `log()`, `state()`, `jump(i)`, `setOpts()` for scripts and agents.
+
 ## Repository structure
 
 ```text
 jank-free-virtual-list/          # this repo
 ├── README.md
 ├── AGENTS.md                    # conventions for agents editing this repo
+├── demo/                        # demo app — own package.json, build & test commands
 └── jank-free-virtual-list/      # the skill itself
     ├── SKILL.md                 # skill entry point (frontmatter + instructions)
     └── references/

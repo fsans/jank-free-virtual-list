@@ -4,9 +4,9 @@ Instructions for coding agents working in this repository.
 
 ## What this repo is
 
-A single [agent skill](jank-free-virtual-list/SKILL.md): `jank-free-virtual-list`, a strategy for scroll-stable virtualized rendering of huge chat/feed/timeline UIs (skeleton map + island loading + anchor-row scroll compensation).
+A single [agent skill](jank-free-virtual-list/SKILL.md): `jank-free-virtual-list`, a strategy for scroll-stable virtualized rendering of huge chat/feed/timeline UIs (skeleton map + island loading + anchor-row scroll compensation), plus a `demo/` app proving the strategy in a real virtualized list.
 
-There is no build system, test suite, or package manifest. Changes are markdown-only; verification is the checklist at the bottom of this file.
+The skill itself is markdown-only; verification for it is the checklist at the bottom of this file. The demo has its own build/test commands (run them inside `demo/`).
 
 ## Layout rules
 
@@ -14,6 +14,7 @@ There is no build system, test suite, or package manifest. Changes are markdown-
 jank-free-virtual-list/          # repo root
 ├── README.md                    # human-facing overview (repo root only)
 ├── AGENTS.md                    # this file (repo root only)
+├── demo/                        # demo app (Vite + React + TS); own package.json
 └── jank-free-virtual-list/      # the skill — the ONLY directory agents load at runtime
     ├── SKILL.md                 # required entry point: YAML frontmatter + instructions
     └── references/              # material loaded on demand
@@ -22,6 +23,7 @@ jank-free-virtual-list/          # repo root
 - The skill folder name must always equal the `name` field in SKILL.md frontmatter. If you rename one, rename both.
 - Skill content lives only inside `jank-free-virtual-list/`. Never add README, CHANGELOG, INSTALL, or other auxiliary docs inside the skill folder — the skill should contain only what an agent needs to do the job. Repo-level docs belong at the root.
 - New bundled resources go in `scripts/` (deterministic/repeated code), `references/` (context loaded as needed), or `assets/` (files used in output) inside the skill folder.
+- `demo/` is a separate self-contained app with its own manifest — run `npm` commands inside `demo/` (`npm run dev`, `npm run build`, `npm test`, `npm run e2e`). The skill-folder rules above are unchanged: nothing inside `jank-free-virtual-list/` should be modified for demo work.
 
 ## SKILL.md conventions
 
