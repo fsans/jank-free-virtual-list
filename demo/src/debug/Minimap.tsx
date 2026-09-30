@@ -7,11 +7,17 @@
 import { useEffect, useRef } from 'react'
 import type { VirtualListState } from '../list/useVirtualList'
 
-const COLORS = {
-  skeleton: '#2a333d',
-  loaded: '#7dd0a8',
-  inflight: '#f2c94c',
-  measured: '#5b7484',
+function colors(canvas: HTMLCanvasElement) {
+  const cs = getComputedStyle(canvas)
+  const v = (name: string, fb: string) => cs.getPropertyValue(name).trim() || fb
+  return {
+    skeleton: v('--mm-skeleton', '#2a333d'),
+    loaded: v('--mm-loaded', '#7dd0a8'),
+    inflight: v('--mm-inflight', '#f2c94c'),
+    measured: v('--mm-measured', '#5b7484'),
+    vp: v('--mm-vp', 'rgba(215,221,227,0.8)'),
+    anchor: v('--mm-anchor', '#4f9cf9'),
+  }
 }
 
 export function Minimap({ v }: { v: VirtualListState }) {
@@ -37,6 +43,7 @@ export function Minimap({ v }: { v: VirtualListState }) {
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
+      const COLORS = colors(canvas)
       const n = hs.n
       for (let y = 0; y < h; y++) {
         const i0 = Math.floor((y / h) * n)
@@ -62,14 +69,14 @@ export function Minimap({ v }: { v: VirtualListState }) {
       if (total > 0) {
         const y0 = (s.scrollTop / total) * h
         const y1 = ((s.scrollTop + s.viewportH) / total) * h
-        ctx.strokeStyle = 'rgba(215,221,227,0.8)'
+        ctx.strokeStyle = COLORS.vp
         ctx.lineWidth = 1
         ctx.strokeRect(0.5, y0 + 0.5, w - 1, Math.max(2, y1 - y0))
         // anchor marker line
         const anchor = anchorIndex(s)
         if (anchor !== null) {
           const ay = (hs.offsetOf(anchor) / total) * h
-          ctx.strokeStyle = '#4f9cf9'
+          ctx.strokeStyle = COLORS.anchor
           ctx.lineWidth = 2
           ctx.beginPath()
           ctx.moveTo(0, ay)

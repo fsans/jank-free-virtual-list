@@ -1,6 +1,8 @@
 :root {
+  color-scheme: dark;
   --bg: #101418;
   --panel: #171c22;
+  --inset: #0c1116;
   --text: #d7dde3;
   --muted: #8b98a5;
   --line: #232b33;
@@ -11,6 +13,49 @@
   --image: #f2994a;
   --diff: #eb5757;
   --sk: #263039;
+  --badge-fg: #0c1116;
+  --msg-user: #cfe3fb;
+  --dl-add: #9fd9bb;
+  --dl-del: #e89696;
+  --pill-bg: #1a2430;
+  --pill-hover: #203040;
+  --mm-skeleton: #2a333d;
+  --mm-loaded: #7dd0a8;
+  --mm-inflight: #f2c94c;
+  --mm-measured: #5b7484;
+  --mm-vp: rgba(215, 221, 227, 0.8);
+  --mm-anchor: #4f9cf9;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --inset: #eef1f4;
+    --text: #1d242c;
+    --muted: #5a6875;
+    --line: #dde3e9;
+    --user: #1a6fd4;
+    --assistant: #7a4fcf;
+    --tool: #1c8a5a;
+    --code: #8a6a00;
+    --image: #c2591a;
+    --diff: #c92a2a;
+    --sk: #e7ebef;
+    --badge-fg: #ffffff;
+    --msg-user: #144e8f;
+    --dl-add: #157a4a;
+    --dl-del: #b02a37;
+    --pill-bg: #ffffff;
+    --pill-hover: #eef4fb;
+    --mm-skeleton: #d4dae0;
+    --mm-loaded: #2ea36b;
+    --mm-inflight: #b8860b;
+    --mm-measured: #8aa0ae;
+    --mm-vp: rgba(29, 36, 44, 0.75);
+    --mm-anchor: #1a6fd4;
+  }
 }
 
 * {
@@ -157,7 +202,7 @@ body {
   padding: 2px 8px;
   border-radius: 4px;
   border: 1px solid var(--line);
-  background: #0c1116;
+  background: var(--inset);
   color: var(--text);
 }
 
@@ -329,7 +374,7 @@ body {
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid var(--line);
-  background: #0c1116;
+  background: var(--inset);
   color: var(--text);
 }
 
@@ -406,7 +451,7 @@ body {
   letter-spacing: 0.05em;
   padding: 2px 6px;
   border-radius: 4px;
-  color: #0c1116;
+  color: var(--badge-fg);
 }
 
 .badge-user {
@@ -462,7 +507,7 @@ body {
 }
 
 .msg-user p {
-  color: #cfe3fb;
+  color: var(--msg-user);
 }
 
 .tool {
@@ -489,7 +534,7 @@ body {
 
 .code {
   margin: 0;
-  background: #0c1116;
+  background: var(--inset);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 10px 12px;
@@ -517,12 +562,12 @@ body {
 
 .dl-add {
   background: rgba(125, 208, 168, 0.1);
-  color: #9fd9bb;
+  color: var(--dl-add);
 }
 
 .dl-del {
   background: rgba(235, 87, 87, 0.1);
-  color: #e89696;
+  color: var(--dl-del);
 }
 
 .dl-ctx {
@@ -582,14 +627,14 @@ body {
   padding: 6px 14px;
   border-radius: 99px;
   border: 1px solid rgba(79, 156, 249, 0.5);
-  background: #1a2430;
+  background: var(--pill-bg);
   color: var(--user);
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 .new-pill:hover {
-  background: #203040;
+  background: var(--pill-hover);
 }
 
 /* Skeletons */
