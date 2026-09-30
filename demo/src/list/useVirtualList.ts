@@ -24,6 +24,7 @@ import type { Anchor, VisibleRow } from './anchor'
 import { PayloadCache } from './cache'
 import { IslandLoader } from './loader'
 import { RingLog } from '../debug/logger'
+import { Metrics } from '../metrics'
 import type { MockApi } from '../mock/api'
 
 export type ListMode = 'pinned' | 'free'
@@ -54,6 +55,19 @@ export interface VirtualListState {
   /** Items appended by the stream while in free mode (the "N new ↓" pill). */
   newCount: number
   jumpToLatest: () => void
+  /** Jump so row `i` (0-based) sits at the viewport top; islands load on demand. */
+  jumpTo: (i: number) => void
+  /** Agent-facing option setter (latency, variance, streaming, compensation). */
+  setOpts: (opts: {
+    latency?: [number, number]
+    variance?: number
+    streaming?: boolean
+    compensation?: boolean
+  }) => void
+  isLoaded: (i: number) => boolean
+  isMeasured: (i: number) => boolean
+  isInflight: (i: number) => boolean
+  metrics: () => Record<string, number | null>
   log: RingLog
   scrollTop: number
   viewportH: number
@@ -108,12 +122,22 @@ export function useVirtualList(api: MockApi): VirtualListState {
   const flushNeededRef = useRef(false)
   const compensationRef = useRef(true)
   const lastScrollTopRef = useRef(0)
+  /** Latest known scrollTop (DOM write or processed scroll event) — React
+   *  state lags a frame behind our own writes, refs do not. */
+  const liveStRef = useRef(0)
   const modeRef = useRef<ListMode>('pinned')
   const lastVisRef = useRef<[number, number]>([0, -1])
   /** scrollTop delta written by compensation/pin logic since the last scroll event. */
   const progDeltaRef = useRef(0)
   const touchYRef = useRef<number | null>(null)
   const intentCleanupRef = useRef<(() => void) | null>(null)
+  const metricsRef = useRef<Metrics | null>(null)
+  if (metricsRef.current === null) metricsRef.current = new Metrics()
+  /** Active jump target being watched for "loaded + stable 2 frames". */
+  const jumpTrackRef = useRef<{ index: number; t0: number; stable: number; lastTop: number } | null>(
+    null,
+  )
+  const jumpRafRef = useRef<number | null>(null)
 
   useLayoutEffect(() => {
     heightsRef.current = heights
@@ -146,10 +170,18 @@ export function useVirtualList(api: MockApi): VirtualListState {
    * handler can subtract our own writes from user intent (mode transitions
    * must never be inferred from raw scrollTop movement).
    */
-  const writeScrollTop = useCallback((el: HTMLElement, v: number) => {
+  const writeScrollTop = useCallback((el: HTMLElement, v: number, asComp = false) => {
     const before = el.scrollTop
     el.scrollTop = v
+    liveStRef.current = el.scrollTop
     progDeltaRef.current += el.scrollTop - before
+    // automatic corrections while a compensation is open count as applied
+    // compensation; user-initiated writes (jump, pill) must NOT, or the
+    // pending comp would "restore" the user back to the old anchor
+    if (asComp) {
+      const pc = pendingCompRef.current
+      if (pc !== null) pc.compApplied += el.scrollTop - before
+    }
   }, [])
 
   /** Explicit mode transition: scroll-up intent => free, bottom => pinned. */
@@ -163,6 +195,15 @@ export function useVirtualList(api: MockApi): VirtualListState {
     },
     [log],
   )
+
+  // ---- metrics: CLS observer lives for the session ----
+  useEffect(() => {
+    metricsRef.current?.start()
+    return () => {
+      metricsRef.current?.stop()
+      if (jumpRafRef.current !== null) cancelAnimationFrame(jumpRafRef.current)
+    }
+  }, [])
 
   // ---- outline: the index-only query that reserves the whole scroll range ----
   useEffect(() => {
@@ -204,6 +245,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
           }
         }
         if (comp) pendingCompRef.current = comp
+        metricsRef.current?.usableRender()
         const evicted = cacheRef.current?.setMany(items) ?? []
         if (evicted.length > 0) {
           log.push('evict', { count: evicted.length, first: evicted[0], last: evicted[evicted.length - 1] })
@@ -236,7 +278,14 @@ export function useVirtualList(api: MockApi): VirtualListState {
           roRef.current = new ResizeObserver((entries) => {
             const hs = heightsRef.current
             const scr = scrollerRef.current
-            const anchor = currentAnchor()
+            // while a compensation is open the px→index mapping is shifting;
+            // the anchor is the pending comp's row, not whatever sits at
+            // the (stale) scrollTop in the model
+            const pc = pendingCompRef.current
+            const anchor =
+              pc !== null
+                ? { index: pc.anchorIndex, kind: pc.anchorKind }
+                : currentAnchor()
             let delta = 0
             for (const entry of entries) {
               const t = entry.target as HTMLElement
@@ -276,7 +325,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
               setRev((r) => r + 1)
             }
             if (delta !== 0 && compensationRef.current && scr) {
-              writeScrollTop(scr, scr.scrollTop + delta)
+              writeScrollTop(scr, scr.scrollTop + delta, true)
               log.push('delta_applied', {
                 reason: 'resize',
                 deltaApplied: r2(delta),
@@ -374,6 +423,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
       const userDelta = st - lastScrollTopRef.current - progDeltaRef.current
       progDeltaRef.current = 0
       lastScrollTopRef.current = st
+      liveStRef.current = st
       const direction: Direction = userDelta < -0.5 ? -1 : userDelta > 0.5 ? 1 : 0
       setScrollTop(st)
       const distFromBottom = el.scrollHeight - el.clientHeight - st
@@ -400,8 +450,16 @@ export function useVirtualList(api: MockApi): VirtualListState {
     if (n === 0) return EMPTY_RANGE
     const visibleStart = heights.indexAtOffset(scrollTop)
     const visibleEnd = Math.min(n - 1, heights.indexAtOffset(scrollTop + viewportH - 1))
-    const mountedStart = heights.indexAtOffset(Math.max(0, scrollTop - viewportH))
-    const mountedEnd = Math.min(n - 1, heights.indexAtOffset(scrollTop + 2 * viewportH))
+    // While a compensation is open, the model's px→index mapping may be
+    // shifting (calibration drain): mounting around the raw scrollTop would
+    // unmount the anchor and teleport the viewport. Mount around the anchor
+    // index instead — unless the user scrolled a viewport+ away.
+    const pc = pendingCompRef.current
+    const userLeft =
+      pc !== null && Math.abs(liveStRef.current - pc.scrollTopAtLand - pc.compApplied) > viewportH
+    const center = pc !== null && !userLeft ? heights.offsetOf(pc.anchorIndex) : scrollTop
+    const mountedStart = heights.indexAtOffset(Math.max(0, center - viewportH))
+    const mountedEnd = Math.min(n - 1, heights.indexAtOffset(center + 2 * viewportH))
     const topSpacer = heights.offsetOf(mountedStart)
     const bottomSpacer = Math.max(0, heights.total() - heights.offsetOf(mountedEnd + 1))
     return { visibleStart, visibleEnd, mountedStart, mountedEnd, topSpacer, bottomSpacer }
@@ -416,7 +474,9 @@ export function useVirtualList(api: MockApi): VirtualListState {
     const el = scrollerRef.current
     const ro = roRef.current
     if (!hs || !el) return
-    const anchor = currentAnchor()
+    const pc = pendingCompRef.current
+    const anchor =
+      pc !== null ? { index: pc.anchorIndex, kind: pc.anchorKind } : currentAnchor()
     let changed = false
     let deltaAbove = 0
     const seen = new Set<HTMLElement>()
@@ -444,7 +504,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
       }
     }
     if (deltaAbove !== 0 && compensationRef.current) {
-      writeScrollTop(el, el.scrollTop + deltaAbove)
+      writeScrollTop(el, el.scrollTop + deltaAbove, true)
       log.push('delta_applied', {
         reason: 'measure',
         deltaApplied: r2(deltaAbove),
@@ -494,11 +554,16 @@ export function useVirtualList(api: MockApi): VirtualListState {
       return
     }
     const userScroll = el.scrollTop - pc.scrollTopAtLand - pc.compApplied
+    // user scrolled a viewport+ away: the anchor is theirs no longer
+    if (Math.abs(userScroll) > el.clientHeight) {
+      pendingCompRef.current = null
+      setRev((r) => r + 1) // re-center the mounted range on the user's window
+      return
+    }
     const targetTop = pc.topBefore - userScroll
     const adjustment = top - targetTop
     if (compensationRef.current && adjustment !== 0) {
-      writeScrollTop(el, el.scrollTop + adjustment)
-      pc.compApplied += adjustment
+      writeScrollTop(el, el.scrollTop + adjustment, true)
       log.push('delta_applied', {
         reason: pc.reason,
         deltaApplied: r2(adjustment),
@@ -516,7 +581,7 @@ export function useVirtualList(api: MockApi): VirtualListState {
     const el = scrollerRef.current
     if (!el || mode !== 'pinned') return
     const max = el.scrollHeight - el.clientHeight
-    if (max > 0 && Math.abs(el.scrollTop - max) > 0.5) writeScrollTop(el, max)
+    if (max > 0 && Math.abs(el.scrollTop - max) > 0.5) writeScrollTop(el, max, true)
   }, [mode, heights, rev, viewportH])
 
   // ---- streaming: appends extend the skeleton map; growth patches the cache ----
@@ -548,10 +613,88 @@ export function useVirtualList(api: MockApi): VirtualListState {
     if (el) writeScrollTop(el, el.scrollHeight - el.clientHeight)
   }, [setModeInternal, writeScrollTop])
 
+  // ---- jump-to-item: estimate offset, land the island, watch usability ----
+  const jumpTo = useCallback(
+    (i: number) => {
+      const el = scrollerRef.current
+      const hs = heightsRef.current
+      if (!el || !hs || hs.n === 0) return
+      const index = Math.max(0, Math.min(hs.n - 1, Math.floor(i)))
+      log.push('jump', { index })
+      // user intent to be somewhere else — no pending comp should hold the old anchor
+      pendingCompRef.current = null
+      jumpTrackRef.current = { index, t0: performance.now(), stable: 0, lastTop: NaN }
+      writeScrollTop(el, hs.offsetOf(index))
+      // a jump is user intent: pinned iff the target lands on the bottom
+      const dist = el.scrollHeight - el.clientHeight - el.scrollTop
+      setModeInternal(dist <= 4 ? 'pinned' : 'free')
+      if (jumpRafRef.current !== null) return
+      const tick = () => {
+        const jt = jumpTrackRef.current
+        const scr = scrollerRef.current
+        if (!jt || !scr) {
+          jumpRafRef.current = null
+          return
+        }
+        if (performance.now() - jt.t0 > 15000) {
+          log.push('jump_timeout', { index: jt.index })
+          jumpTrackRef.current = null
+          jumpRafRef.current = null
+          return
+        }
+        // usable = mounted + loaded + measured + viewport top stable 2 frames
+        const row = scr.querySelector<HTMLElement>(`[data-vrow="${jt.index}"]`)
+        const usable =
+          row !== null &&
+          (cacheRef.current?.has(jt.index) ?? false) &&
+          (heightsRef.current?.isMeasured(jt.index) ?? false)
+        if (usable) {
+          const top = row.getBoundingClientRect().top
+          jt.stable = top === jt.lastTop ? jt.stable + 1 : 0
+          jt.lastTop = top
+          if (jt.stable >= 2) {
+            const ms = performance.now() - jt.t0
+            metricsRef.current?.jumpUsable(jt.index, ms)
+            log.push('jump_usable', { index: jt.index, ms: Math.round(ms) })
+            jumpTrackRef.current = null
+            jumpRafRef.current = null
+            return
+          }
+        } else {
+          jt.stable = 0
+          jt.lastTop = NaN
+        }
+        jumpRafRef.current = requestAnimationFrame(tick)
+      }
+      jumpRafRef.current = requestAnimationFrame(tick)
+    },
+    [log, setModeInternal, writeScrollTop],
+  )
+
   const setCompensation = useCallback((on: boolean) => {
     compensationRef.current = on
     setCompensationState(on)
   }, [])
+
+  const setOpts = useCallback(
+    (opts: {
+      latency?: [number, number]
+      variance?: number
+      streaming?: boolean
+      compensation?: boolean
+    }) => {
+      if (opts.latency) api.setLatency(opts.latency[0], opts.latency[1])
+      if (opts.variance !== undefined) {
+        api.setVariance(opts.variance)
+        // payloads regenerate lazily at the new variance; drop stale ones
+        cacheRef.current?.clear()
+        setRev((r) => r + 1)
+      }
+      if (opts.streaming !== undefined) setStreaming(opts.streaming)
+      if (opts.compensation !== undefined) setCompensation(opts.compensation)
+    },
+    [api, setCompensation],
+  )
 
   const payloadOf = useCallback((i: number) => cacheRef.current?.get(i), [rev])
 
@@ -569,6 +712,12 @@ export function useVirtualList(api: MockApi): VirtualListState {
     setStreaming,
     newCount,
     jumpToLatest,
+    jumpTo,
+    setOpts,
+    isLoaded: (i: number) => cacheRef.current?.has(i) ?? false,
+    isMeasured: (i: number) => heightsRef.current?.isMeasured(i) ?? false,
+    isInflight: (i: number) => loaderRef.current?.isInflight(i) ?? false,
+    metrics: () => metricsRef.current?.snapshot() ?? {},
     log,
     scrollTop,
     viewportH,

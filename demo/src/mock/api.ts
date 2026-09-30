@@ -92,4 +92,9 @@ export class MockApi {
     this.latencyMin = min
     this.latencyMax = Math.max(min, max)
   }
+
+  /** Height-variance multiplier for payloads generated from now on. */
+  setVariance(v: number): void {
+    this.dataset.variance = Math.max(0, v)
+  }
 }

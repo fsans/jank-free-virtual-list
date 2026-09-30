@@ -126,12 +126,250 @@ body {
   border-color: rgba(235, 87, 87, 0.4);
 }
 
+.vlist-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.vlist-controls button {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.vlist-controls button:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.vlist-controls .goto {
+  font: inherit;
+  font-size: 11px;
+  width: 90px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: #0c1116;
+  color: var(--text);
+}
+
+.vlist-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 /* The scroll container. overflow-anchor: none — we compensate ourselves. */
 .vlist {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
+}
+
+/* row index overlays (debugger toggle) */
+.vlist.dbg-index [data-vrow] {
+  outline: 1px dashed rgba(242, 201, 76, 0.25);
+  outline-offset: -1px;
+}
+
+.vlist.dbg-index [data-vrow]::after {
+  content: attr(data-vrow);
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font-size: 9px;
+  color: rgba(242, 201, 76, 0.6);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+
+.vlist.dbg-index .row {
+  position: relative;
+}
+
+/* anchor highlight (debugger toggle) */
+.row.anchor-hl {
+  outline: 2px solid var(--user);
+  outline-offset: -2px;
+}
+
+/* Debugger panel */
+.dbg {
+  width: 264px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 11px;
+  color: var(--muted);
+  min-height: 0;
+}
+
+.dbg-collapsed {
+  flex: none;
+  width: 26px;
+  border: none;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  padding: 8px 0;
+}
+
+.dbg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.dbg-head button {
+  font: inherit;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.minimap {
+  display: block;
+  width: calc(100% - 16px);
+  height: 180px;
+  margin: 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: crosshair;
+  flex: none;
+}
+
+.dbg-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  padding: 4px 10px 8px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.dbg-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dbg-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.dbg-slider {
+  flex-direction: column;
+  align-items: stretch !important;
+  gap: 2px;
+}
+
+.dbg-slider input[type='range'] {
+  width: 100%;
+  accent-color: var(--user);
+}
+
+.dbg-preset {
+  font: inherit;
+  font-size: 10px;
+  align-self: flex-start;
+  padding: 1px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.dbg-log {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dbg-log-head {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dbg-log-head input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: #0c1116;
+  color: var(--text);
+}
+
+.dbg-log-head button {
+  font: inherit;
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.dbg-log-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+}
+
+.dbg-ev {
+  display: flex;
+  gap: 6px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dbg-ev-name {
+  color: var(--text);
+  flex: none;
+  min-width: 96px;
+}
+
+.dbg-ev-body {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vlist-boot {
